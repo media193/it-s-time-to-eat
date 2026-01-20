@@ -21,6 +21,7 @@ body {
 #photoArea img {
   width: 160px;
   border-radius: 6px;
+  margin: 6px;
 }
 
 /* カメラ */
@@ -116,6 +117,7 @@ canvas {
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
+// Firebase 設定
 const firebaseConfig = {
   apiKey: "AIzaSyA8Qa_69erE3FNr-XKzXFN_81iPYXyqHfI",
   authDomain: "its-time-to-eat.firebaseapp.com",
@@ -126,8 +128,17 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
-const photoRef = ref(db, "currentPhoto");
 
+// ユーザーごとのIDを作成（ブラウザごとに一度だけ）
+let userId = localStorage.getItem("userId");
+if (!userId) {
+  userId = crypto.randomUUID();
+  localStorage.setItem("userId", userId);
+}
+const userPhotoRef = ref(db, `photos/${userId}`);
+const photosRef = ref(db, "photos");
+
+// DOM
 const startButton = document.getElementById("startButton");
 const endButton = document.getElementById("endButton");
 const cameraArea = document.getElementById("cameraArea");
@@ -140,9 +151,14 @@ const flash = document.getElementById("flash");
 let stream = null;
 let phase = "eat";
 
+// カメラ開始（背面カメラ指定）
 async function startCamera() {
-  stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+    video.srcObject = stream;
+  } catch (err) {
+    alert("カメラにアクセスできませんでした: " + err.message);
+  }
 }
 
 function stopCamera() {
@@ -167,7 +183,6 @@ function flashEffect() {
 /* いただきます */
 startButton.onclick = async () => {
   phase = "eat";
-  const message = document.getElementById("message");
   startButton.style.display = "none";
   cameraArea.style.display = "block";
   await startCamera();
@@ -176,7 +191,6 @@ startButton.onclick = async () => {
 /* ごちそうさま */
 endButton.onclick = async () => {
   phase = "end";
-  const message = "none";
   endButton.style.display = "none";
   cameraArea.style.display = "block";
   await startCamera();
@@ -189,7 +203,8 @@ shutter.onclick = async () => {
   stopCamera();
   cameraArea.style.display = "none";
 
-  await set(photoRef, {
+  // 自分の写真は上書き
+  await set(userPhotoRef, {
     image,
     time: Date.now()
   });
@@ -198,20 +213,23 @@ shutter.onclick = async () => {
     endButton.style.display = "block";
   } else {
     setTimeout(async () => {
-      await remove(photoRef);
+      await remove(userPhotoRef);
       startButton.style.display = "block";
     }, 5000);
   }
 };
 
-/* リアルタイム表示 */
-onValue(photoRef, snapshot => {
+/* リアルタイムで全ユーザーの最新写真だけ表示 */
+onValue(photosRef, snapshot => {
   photoArea.innerHTML = "";
-  if (!snapshot.exists()) return;
-
-  const img = document.createElement("img");
-  img.src = snapshot.val().image;
-  photoArea.appendChild(img);
+  snapshot.forEach(childSnap => {
+    const data = childSnap.val();
+    if (data && data.image) {
+      const img = document.createElement("img");
+      img.src = data.image;
+      photoArea.appendChild(img);
+    }
+  });
 });
 </script>
 
