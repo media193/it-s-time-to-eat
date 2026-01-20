@@ -1,135 +1,6 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<title>いただきます</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<style>
-body {
-  margin: 0;
-  background: #fafafa;
-  font-family: sans-serif;
-}
-
-#photoArea {
-  padding: 10px;
-  text-align: center;
-}
-
-#photoArea img {
-  width: 140px;
-  border-radius: 6px;
-  margin: 6px;
-}
-
-#cameraArea {
-  display: none;
-  position: relative;
-}
-
-#message {
-  position: absolute;
-  top: 10px;
-  width: 100%;
-  text-align: center;
-  color: white;
-  font-size: 16px;
-  text-shadow: 0 0 6px rgba(0,0,0,0.6);
-  z-index: 2;
-}
-
-video {
-  width: 100%;
-}
-
-#shutter {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 70px;
-  height: 70px;
-  border-radius: 50%;
-  background: white;
-  border: 4px solid #ddd;
-}
-
-#shutter::after {
-  content: "";
-  display: block;
-  width: 52px;
-  height: 52px;
-  margin: 5px auto;
-  border-radius: 50%;
-  background: #eee;
-}
-
-.circleButton {
-  width: 180px;
-  height: 180px;
-  border-radius: 50%;
-  border: none;
-  background: white;
-  font-size: 22px;
-  margin: 40px auto;
-  display: block;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-}
-
-#flash {
-  position: fixed;
-  inset: 0;
-  background: white;
-  opacity: 0;
-  pointer-events: none;
-}
-
-canvas {
-  display: none;
-}
-
-/* いただきますボタン中央配置 */
-#startWrapper {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-/* ごちそうさまボタン画面下配置 */
-#endButton {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-</style>
-</head>
-
-<body>
-
-<div id="photoArea"></div>
-
-<div id="startWrapper">
-  <button id="startButton" class="circleButton">いただきます</button>
-</div>
-
-<div id="cameraArea">
-  <div id="message">今日のご飯は？</div>
-  <video id="video" autoplay playsinline></video>
-  <button id="shutter"></button>
-</div>
-
-<button id="endButton" class="circleButton" style="display:none;">ごちそうさま</button>
-
-<div id="flash"></div>
-<canvas id="canvas"></canvas>
-
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onChildAdded, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { getDatabase, ref, set, onChildAdded, onChildRemoved, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyA8Qa_69erE3FNr-XKzXFN_81iPYXyqHfI",
@@ -141,7 +12,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-const userId = crypto.randomUUID(); // セッションごとにユニーク
+const userId = crypto.randomUUID();
 const userPhotoRef = ref(db, `photos/${userId}`);
 const photosRef = ref(db, "photos");
 
@@ -157,9 +28,10 @@ const flash = document.getElementById("flash");
 const message = document.getElementById("message");
 
 let stream = null;
-let phase = "eat";
+let phase = "wait"; // 初期状態は wait
+const displayedPhotos = new Map(); // 表示中の写真管理
 
-// カメラ開始
+// ---------------- カメラ ----------------
 async function startCamera() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
@@ -188,7 +60,7 @@ function flashEffect() {
   setTimeout(() => flash.style.opacity = 0, 100);
 }
 
-/* いただきます */
+// ---------------- いただきます ----------------
 startButton.onclick = async () => {
   phase = "eat";
   startWrapper.style.display = "none";
@@ -196,20 +68,21 @@ startButton.onclick = async () => {
   message.textContent = "今日のご飯は？";
   await startCamera();
 
-  // 初期表示時に過去の写真は非表示にするため何も描画しない
+  // 初期表示では過去の写真を表示しない
   photoArea.innerHTML = "";
+  displayedPhotos.clear();
 };
 
-/* ごちそうさま */
+// ---------------- ごちそうさま ----------------
 endButton.onclick = async () => {
   phase = "end";
   endButton.style.display = "none";
   cameraArea.style.display = "block";
-  message.textContent = "ごちそうさまでした";
+  message.textContent = "どんな時間でしたか";
   await startCamera();
 };
 
-/* シャッター */
+// ---------------- シャッター ----------------
 shutter.onclick = async () => {
   flashEffect();
   const image = takePhoto();
@@ -225,27 +98,45 @@ shutter.onclick = async () => {
   if (phase === "eat") {
     endButton.style.display = "block";
   } else {
+    // ごちそうさま後5秒で削除
     setTimeout(async () => {
-      await remove(userPhotoRef);
+      await remove(userPhotoRef); // 他ユーザー画面からも消える
       startWrapper.style.display = "flex";
-      photoArea.innerHTML = ""; // セッション終了後、写真を表示しない
+      photoArea.innerHTML = "";
+      displayedPhotos.clear();
+      phase = "wait"; // 初期状態に戻す
     }, 5000);
   }
 };
 
-/* 他のユーザーの写真もリアルタイム表示（自分がいただきますを押した後のみ） */
+// ---------------- リアルタイム表示 ----------------
+
+// 写真追加
 onChildAdded(photosRef, snapshot => {
-  // 自分がまだいただきますしていなければ何も描画しない
-  if (phase === "eat" || phase === "end") {
-    const data = snapshot.val();
-    if (data && data.image) {
-      const img = document.createElement("img");
-      img.src = data.image;
-      photoArea.appendChild(img);
-    }
+  const data = snapshot.val();
+  if (!data || !data.image) return;
+
+  // 自分の投稿がまだない場合は表示しない
+  if (phase === "wait") return;
+
+  // 同じ写真を重複表示しない
+  if (displayedPhotos.has(snapshot.key)) return;
+
+  const img = document.createElement("img");
+  img.src = data.image;
+  img.dataset.key = snapshot.key;
+  photoArea.appendChild(img);
+
+  displayedPhotos.set(snapshot.key, img);
+});
+
+// 写真削除
+onChildRemoved(photosRef, snapshot => {
+  const key = snapshot.key;
+  const img = displayedPhotos.get(key);
+  if (img) {
+    img.remove();
+    displayedPhotos.delete(key);
   }
 });
 </script>
-
-</body>
-</html>
