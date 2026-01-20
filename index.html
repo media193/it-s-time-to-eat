@@ -1,124 +1,187 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import {
-  getDatabase,
-  ref,
-  set,
-  remove,
-  onValue,
-  runTransaction
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>いただきますアプリ</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: #f5f5f5;
+      font-family: sans-serif;
+    }
 
-/* Firebase設定 */
-const firebaseConfig = {
-  apiKey: "...",
-  authDomain: "...",
-  databaseURL: "...",
-  projectId: "...",
-  storageBucket: "...",
-  messagingSenderId: "...",
-  appId: "..."
-};
+    button {
+      border: none;
+      border-radius: 50%;
+      background: #ffffff;
+      font-size: 24px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    }
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+    video {
+      border: 2px solid #666;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
 
-const countRef = ref(db, "eatingCount");
-const sessionsRef = ref(db, "sessions");
+    img.shared-photo {
+      width: 120px;
+      margin: 8px;
+      border-radius: 8px;
+    }
 
-/* DOM */
-const button = document.getElementById("mainButton");
-const video = document.getElementById("camera");
-const canvas = document.getElementById("canvas");
+    img#photo {
+      max-width: 300px;
+      margin-top: 20px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
 
-/* 状態 */
-const userId = crypto.randomUUID();
-let stream = null;
-let step = "idle"; // idle | eating | finishing
+  <button id="mainButton">いただきます</button>
 
-/* 人数に応じてボタンサイズ */
-onValue(countRef, (snap) => {
-  const count = snap.val() ?? 0;
-  const size = 120 + count * 15;
-  button.style.width = size + "px";
-  button.style.height = size + "px";
-});
+  <video id="camera" autoplay playsinline style="display:none;"></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+  <img id="photo" style="display:none;">
 
-/* 他人の写真を表示 */
-onValue(sessionsRef, (snap) => {
-  document.querySelectorAll(".shared-photo").forEach(el => el.remove());
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import {
+      getDatabase,
+      ref,
+      set,
+      remove,
+      onValue,
+      runTransaction
+    } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-  snap.forEach(child => {
-    if (child.key === userId) return;
+    /* Firebase設定 */
+    const firebaseConfig = {
+      apiKey: "ここにコピー",
+      authDomain: "ここにコピー",
+      databaseURL: "ここにコピー",
+      projectId: "ここにコピー",
+      storageBucket: "ここにコピー",
+      messagingSenderId: "ここにコピー",
+      appId: "ここにコピー"
+    };
 
-    const img = document.createElement("img");
-    img.src = child.val().photo;
-    img.className = "shared-photo";
-    img.style.width = "120px";
-    img.style.margin = "8px";
-    document.body.appendChild(img);
-  });
-});
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
-/* カメラ */
-async function startCamera() {
-  stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
-  video.style.display = "block";
-}
+    const countRef = ref(db, "eatingCount");
+    const sessionsRef = ref(db, "sessions");
 
-function shoot() {
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0);
-  stream.getTracks().forEach(t => t.stop());
-  video.style.display = "none";
-  return canvas.toDataURL("image/jpeg");
-}
+    /* DOM */
+    const button = document.getElementById("mainButton");
+    const video = document.getElementById("camera");
+    const canvas = document.getElementById("canvas");
+    const photo = document.getElementById("photo");
 
-/* 写真を共有 */
-function sharePhoto(dataURL) {
-  set(ref(db, `sessions/${userId}`), {
-    photo: dataURL,
-    updatedAt: Date.now()
-  });
-}
+    /* 状態 */
+    const userId = crypto.randomUUID();
+    let stream = null;
+    let step = "idle"; // idle | eating | finishing
 
-/* セッション削除 */
-function clearSession() {
-  remove(ref(db, `sessions/${userId}`));
-}
+    /* 人数に応じてボタンサイズ */
+    onValue(countRef, (snap) => {
+      const count = snap.val() ?? 0;
+      const size = 120 + count * 15;
+      button.style.width = size + "px";
+      button.style.height = size + "px";
+    });
 
-/* ボタン挙動 */
-button.onclick = async () => {
+    /* 他人の写真を表示 */
+    onValue(sessionsRef, (snap) => {
+      document.querySelectorAll(".shared-photo").forEach(el => el.remove());
 
-  /* いただきます */
-  if (step === "idle") {
-    step = "eating";
-    button.textContent = "ごちそうさま";
-    runTransaction(countRef, c => (c || 0) + 1);
+      snap.forEach(child => {
+        if (child.key === userId) return;
 
-    await startCamera();
-    setTimeout(() => {
-      const photo = shoot();
-      sharePhoto(photo);
-    }, 1500);
-  }
+        const img = document.createElement("img");
+        img.src = child.val().photo;
+        img.className = "shared-photo";
+        document.body.appendChild(img);
+      });
+    });
 
-  /* ごちそうさま */
-  else if (step === "eating") {
-    step = "finishing";
+    /* カメラ */
+    async function startCamera() {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      video.style.display = "block";
+    }
 
-    await startCamera();
-    setTimeout(() => {
-      const photo = shoot();
-      sharePhoto(photo);
+    function shoot() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      stream.getTracks().forEach(t => t.stop());
+      video.style.display = "none";
+      return canvas.toDataURL("image/jpeg");
+    }
 
-      setTimeout(() => {
-        clearSession();
-        runTransaction(countRef, c => Math.max((c || 1) - 1, 0));
-        location.reload();
-      }, 5000);
+    /* 写真を共有 */
+    function sharePhoto(dataURL) {
+      set(ref(db, `sessions/${userId}`), {
+        photo: dataURL,
+        updatedAt: Date.now()
+      });
+      photo.src = dataURL;
+      photo.style.display = "block";
+    }
 
-    }, 1500);
-  }
-};
+    /* セッション削除 */
+    function clearSession() {
+      remove(ref(db, `sessions/${userId}`));
+      photo.style.display = "none";
+    }
+
+    /* ボタン挙動 */
+    button.onclick = async () => {
+
+      /* いただきます */
+      if (step === "idle") {
+        step = "eating";
+        button.textContent = "ごちそうさま";
+        runTransaction(countRef, c => (c || 0) + 1);
+
+        await startCamera();
+        setTimeout(() => {
+          const dataURL = shoot();
+          sharePhoto(dataURL);
+        }, 1500);
+      }
+
+      /* ごちそうさま */
+      else if (step === "eating") {
+        step = "finishing";
+
+        await startCamera();
+        setTimeout(() => {
+          const dataURL = shoot();
+          sharePhoto(dataURL);
+
+          // 5秒後に削除して初期画面に戻る
+          setTimeout(() => {
+            clearSession();
+            runTransaction(countRef, c => Math.max((c || 1) - 1, 0));
+            location.reload();
+          }, 5000);
+
+        }, 1500);
+      }
+    };
+  </script>
+
+</body>
+</html>
