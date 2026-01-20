@@ -1,0 +1,25 @@
+:root {
+  --bg-color: #fc5151;
+  --text-color: #072d00;
+  --font-size: 30px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: ui-serif;
+}
+
+a {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-size: var(--font-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(100vh - 2em);
+  width: calc(100vw　- 2em);
+  padding: 1em;
+  text-decoration: none;
+  text-align: center;
+}

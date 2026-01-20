@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>いただきます</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+  margin: 0;
+  background: #fafafa;
+  font-family: sans-serif;
+}
+
+/* 写真表示 */
+#photoArea {
+  padding: 10px;
+  text-align: center;
+}
+
+#photoArea img {
+  width: 160px;
+  border-radius: 6px;
+}
+
+/* カメラ */
+#cameraArea {
+  display: none;
+  position: relative;
+}
+
+#message {
+  position: absolute;
+  top: 10px;
+  width: 100%;
+  text-align: center;
+  color: white;
+  font-size: 16px;
+  text-shadow: 0 0 6px rgba(0,0,0,0.6);
+  z-index: 2;
+}
+
+video {
+  width: 100%;
+}
+
+/* シャッター */
+#shutter {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: white;
+  border: 4px solid #ddd;
+}
+
+#shutter::after {
+  content: "";
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 5px auto;
+  border-radius: 50%;
+  background: #eee;
+}
+
+/* ボタン共通 */
+.circleButton {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: none;
+  background: white;
+  font-size: 22px;
+  margin: 40px auto;
+  display: block;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+}
+
+/* フラッシュ */
+#flash {
+  position: fixed;
+  inset: 0;
+  background: white;
+  opacity: 0;
+  pointer-events: none;
+}
+
+canvas {
+  display: none;
+}
+</style>
+</head>
+
+<body>
+
+<div id="photoArea"></div>
+
+<button id="startButton" class="circleButton">いただきます</button>
+
+<div id="cameraArea">
+  <div id="message">今日のご飯は？</div>
+  <video id="video" autoplay playsinline></video>
+  <button id="shutter"></button>
+</div>
+
+<button id="endButton" class="circleButton" style="display:none;">ごちそうさま</button>
+
+<div id="flash"></div>
+<canvas id="canvas"></canvas>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA8Qa_69erE3FNr-XKzXFN_81iPYXyqHfI",
+  authDomain: "its-time-to-eat.firebaseapp.com",
+  databaseURL: "https://its-time-to-eat-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "its-time-to-eat",
+  appId: "1:47758464256:web:1d7b4e5830aab3ab7f4fe5"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const photoRef = ref(db, "currentPhoto");
+
+const startButton = document.getElementById("startButton");
+const endButton = document.getElementById("endButton");
+const cameraArea = document.getElementById("cameraArea");
+const shutter = document.getElementById("shutter");
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const photoArea = document.getElementById("photoArea");
+const flash = document.getElementById("flash");
+
+let stream = null;
+let phase = "eat";
+
+async function startCamera() {
+  stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+}
+
+function takePhoto() {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  return canvas.toDataURL("image/jpeg", 0.7);
+}
+
+function flashEffect() {
+  flash.style.opacity = 1;
+  setTimeout(() => flash.style.opacity = 0, 100);
+}
+
+/* いただきます */
+startButton.onclick = async () => {
+  phase = "eat";
+  const message = document.getElementById("message");
+  startButton.style.display = "none";
+  cameraArea.style.display = "block";
+  await startCamera();
+};
+
+/* ごちそうさま */
+endButton.onclick = async () => {
+  phase = "end";
+  const message = "none";
+  endButton.style.display = "none";
+  cameraArea.style.display = "block";
+  await startCamera();
+};
+
+/* シャッター */
+shutter.onclick = async () => {
+  flashEffect();
+  const image = takePhoto();
+  stopCamera();
+  cameraArea.style.display = "none";
+
+  await set(photoRef, {
+    image,
+    time: Date.now()
+  });
+
+  if (phase === "eat") {
+    endButton.style.display = "block";
+  } else {
+    setTimeout(async () => {
+      await remove(photoRef);
+      startButton.style.display = "block";
+    }, 5000);
+  }
+};
+
+/* リアルタイム表示 */
+onValue(photoRef, snapshot => {
+  photoArea.innerHTML = "";
+  if (!snapshot.exists()) return;
+
+  const img = document.createElement("img");
+  img.src = snapshot.val().image;
+  photoArea.appendChild(img);
+});
+</script>
+
+</body>
+</html>
