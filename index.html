@@ -1,179 +1,124 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<title>いただきます</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-body { margin: 0; background: #fafafa; font-family: sans-serif; }
-#photoArea { padding: 10px; text-align: center; }
-#photoArea img { width: 140px; border-radius: 6px; margin: 6px; }
-#cameraArea { display: none; position: relative; }
-#message { position: absolute; top: 10px; width: 100%; text-align: center; color: white; font-size: 16px; text-shadow: 0 0 6px rgba(0,0,0,0.6); z-index: 2; }
-video { width: 100%; }
-#shutter { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 70px; height: 70px; border-radius: 50%; background: white; border: 4px solid #ddd; }
-#shutter::after { content: ""; display: block; width: 52px; height: 52px; margin: 5px auto; border-radius: 50%; background: #eee; }
-.circleButton { width: 180px; height: 180px; border-radius: 50%; border: none; background: white; font-size: 22px; margin: 40px auto; display: block; box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
-#flash { position: fixed; inset: 0; background: white; opacity: 0; pointer-events: none; }
-canvas { display: none; }
-#startWrapper { position: fixed; inset: 0; display: flex; justify-content: center; align-items: center; }
-#endButton { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); }
-</style>
-</head>
-<body>
-<div id="photoArea"></div>
-<div id="startWrapper">
-  <button id="startButton" class="circleButton">いただきます</button>
-</div>
-<div id="cameraArea">
-  <div id="message">今日のご飯は？</div>
-  <video id="video" autoplay playsinline></video>
-  <button id="shutter"></button>
-</div>
-<button id="endButton" class="circleButton" style="display:none;">ごちそうさま</button>
-<div id="flash"></div>
-<canvas id="canvas"></canvas>
-
-<script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onChildAdded, onChildRemoved, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import {
+  getDatabase,
+  ref,
+  set,
+  remove,
+  onValue,
+  runTransaction
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
+/* Firebase設定 */
 const firebaseConfig = {
-  apiKey: "AIzaSyA8Qa_69erE3FNr-XKzXFN_81iPYXyqHfI",
-  databaseURL: "https://its-time-to-eat-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "its-time-to-eat",
-  appId: "1:47758464256:web:1d7b4e5830aab3ab7f4fe5"
+  apiKey: "...",
+  authDomain: "...",
+  databaseURL: "...",
+  projectId: "...",
+  storageBucket: "...",
+  messagingSenderId: "...",
+  appId: "..."
 };
+
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-const userId = crypto.randomUUID();
-const userPhotoRef = ref(db, `photos/${userId}`);
-const photosRef = ref(db, "photos");
+const countRef = ref(db, "eatingCount");
+const sessionsRef = ref(db, "sessions");
 
-const startWrapper = document.getElementById("startWrapper");
-const startButton = document.getElementById("startButton");
-const endButton = document.getElementById("endButton");
-const cameraArea = document.getElementById("cameraArea");
-const shutter = document.getElementById("shutter");
-const video = document.getElementById("video");
+/* DOM */
+const button = document.getElementById("mainButton");
+const video = document.getElementById("camera");
 const canvas = document.getElementById("canvas");
-const photoArea = document.getElementById("photoArea");
-const flash = document.getElementById("flash");
-const message = document.getElementById("message");
 
+/* 状態 */
+const userId = crypto.randomUUID();
 let stream = null;
-let phase = "eat";
-let hasStarted = false; // いただきますを押したか
+let step = "idle"; // idle | eating | finishing
 
+/* 人数に応じてボタンサイズ */
+onValue(countRef, (snap) => {
+  const count = snap.val() ?? 0;
+  const size = 120 + count * 15;
+  button.style.width = size + "px";
+  button.style.height = size + "px";
+});
+
+/* 他人の写真を表示 */
+onValue(sessionsRef, (snap) => {
+  document.querySelectorAll(".shared-photo").forEach(el => el.remove());
+
+  snap.forEach(child => {
+    if (child.key === userId) return;
+
+    const img = document.createElement("img");
+    img.src = child.val().photo;
+    img.className = "shared-photo";
+    img.style.width = "120px";
+    img.style.margin = "8px";
+    document.body.appendChild(img);
+  });
+});
+
+/* カメラ */
 async function startCamera() {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
-    video.srcObject = stream;
-  } catch (err) {
-    alert("カメラにアクセスできません: " + err.message);
-  }
+  stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+  video.style.display = "block";
 }
 
-function stopCamera() {
-  if (stream) {
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
-  }
-}
-
-function takePhoto() {
+function shoot() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
-  return canvas.toDataURL("image/jpeg", 0.7);
+  stream.getTracks().forEach(t => t.stop());
+  video.style.display = "none";
+  return canvas.toDataURL("image/jpeg");
 }
 
-function flashEffect() {
-  flash.style.opacity = 1;
-  setTimeout(() => flash.style.opacity = 0, 100);
+/* 写真を共有 */
+function sharePhoto(dataURL) {
+  set(ref(db, `sessions/${userId}`), {
+    photo: dataURL,
+    updatedAt: Date.now()
+  });
 }
 
-/* 写真管理 */
-const displayedPhotos = {};
-
-function renderPhoto(id, data, isSelf=false) {
-  if (displayedPhotos[id]) return;
-  const img = document.createElement("img");
-  img.src = data.image;
-  img.dataset.id = id;
-  photoArea.appendChild(img);
-  displayedPhotos[id] = img;
+/* セッション削除 */
+function clearSession() {
+  remove(ref(db, `sessions/${userId}`));
 }
 
-function removePhoto(id) {
-  const img = displayedPhotos[id];
-  if (img) {
-    img.remove();
-    delete displayedPhotos[id];
+/* ボタン挙動 */
+button.onclick = async () => {
+
+  /* いただきます */
+  if (step === "idle") {
+    step = "eating";
+    button.textContent = "ごちそうさま";
+    runTransaction(countRef, c => (c || 0) + 1);
+
+    await startCamera();
+    setTimeout(() => {
+      const photo = shoot();
+      sharePhoto(photo);
+    }, 1500);
   }
-}
 
-/* いただきます */
-startButton.onclick = async () => {
-  phase = "eat";
-  hasStarted = true;
-  startWrapper.style.display = "none";
-  cameraArea.style.display = "block";
-  message.textContent = "今日のご飯は？";
-  await startCamera();
-  photoArea.innerHTML = ""; // 初期表示で他人の写真は非表示
-};
+  /* ごちそうさま */
+  else if (step === "eating") {
+    step = "finishing";
 
-/* ごちそうさま */
-endButton.onclick = async () => {
-  phase = "end";
-  endButton.style.display = "none";
-  cameraArea.style.display = "block";
-  message.textContent = "どんな時間でしたか";
-  await startCamera();
-};
+    await startCamera();
+    setTimeout(() => {
+      const photo = shoot();
+      sharePhoto(photo);
 
-/* シャッター */
-shutter.onclick = async () => {
-  flashEffect();
-  const image = takePhoto();
-  stopCamera();
-  cameraArea.style.display = "none";
+      setTimeout(() => {
+        clearSession();
+        runTransaction(countRef, c => Math.max((c || 1) - 1, 0));
+        location.reload();
+      }, 5000);
 
-  // Firebaseに保存
-  await set(userPhotoRef, { image, updatedAt: Date.now() });
-
-  // 自分の写真を画面に表示
-  renderPhoto(userId, { image }, true);
-
-  if (phase === "eat") {
-    endButton.style.display = "block";
-  } else {
-    // ごちそうさま後5秒で削除
-    setTimeout(async () => {
-      await remove(userPhotoRef);
-      startWrapper.style.display = "flex";
-      photoArea.innerHTML = "";
-      for (const key in displayedPhotos) delete displayedPhotos[key];
-    }, 5000);
+    }, 1500);
   }
 };
-
-/* 他ユーザーの写真表示 */
-onChildAdded(photosRef, snapshot => {
-  if (!hasStarted) return; // いただきますしていなければ描画しない
-  const id = snapshot.key;
-  if (id === userId) return; // 自分の写真は描画済み
-  const data = snapshot.val();
-  if (data && data.image) renderPhoto(id, data, false);
-});
-
-/* 他ユーザーの写真削除 */
-onChildRemoved(photosRef, snapshot => {
-  const id = snapshot.key;
-  removePhoto(id);
-});
-</script>
-</body>
-</html>
