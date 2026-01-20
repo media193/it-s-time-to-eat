@@ -1,3 +1,39 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>いただきます</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body { margin: 0; background: #fafafa; font-family: sans-serif; }
+#photoArea { padding: 10px; text-align: center; }
+#photoArea img { width: 140px; border-radius: 6px; margin: 6px; }
+#cameraArea { display: none; position: relative; }
+#message { position: absolute; top: 10px; width: 100%; text-align: center; color: white; font-size: 16px; text-shadow: 0 0 6px rgba(0,0,0,0.6); z-index: 2; }
+video { width: 100%; }
+#shutter { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 70px; height: 70px; border-radius: 50%; background: white; border: 4px solid #ddd; }
+#shutter::after { content: ""; display: block; width: 52px; height: 52px; margin: 5px auto; border-radius: 50%; background: #eee; }
+.circleButton { width: 180px; height: 180px; border-radius: 50%; border: none; background: white; font-size: 22px; margin: 40px auto; display: block; box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
+#flash { position: fixed; inset: 0; background: white; opacity: 0; pointer-events: none; }
+canvas { display: none; }
+#startWrapper { position: fixed; inset: 0; display: flex; justify-content: center; align-items: center; }
+#endButton { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+<div id="photoArea"></div>
+<div id="startWrapper">
+  <button id="startButton" class="circleButton">いただきます</button>
+</div>
+<div id="cameraArea">
+  <div id="message">今日のご飯は？</div>
+  <video id="video" autoplay playsinline></video>
+  <button id="shutter"></button>
+</div>
+<button id="endButton" class="circleButton" style="display:none;">ごちそうさま</button>
+<div id="flash"></div>
+<canvas id="canvas"></canvas>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, set, onChildAdded, onChildRemoved, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
@@ -8,11 +44,10 @@ const firebaseConfig = {
   projectId: "its-time-to-eat",
   appId: "1:47758464256:web:1d7b4e5830aab3ab7f4fe5"
 };
-
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-const userId = crypto.randomUUID(); // 自分のセッションID
+const userId = crypto.randomUUID();
 const userPhotoRef = ref(db, `photos/${userId}`);
 const photosRef = ref(db, "photos");
 
@@ -29,7 +64,7 @@ const message = document.getElementById("message");
 
 let stream = null;
 let phase = "eat";
-let hasStarted = false; // ★「いただきます」押したか
+let hasStarted = false; // いただきますを押したか
 
 async function startCamera() {
   try {
@@ -59,31 +94,11 @@ function flashEffect() {
   setTimeout(() => flash.style.opacity = 0, 100);
 }
 
-/* いただきます */
-startButton.onclick = async () => {
-  phase = "eat";
-  hasStarted = true; // ★
-  startWrapper.style.display = "none";
-  cameraArea.style.display = "block";
-  message.textContent = "今日のご飯は？";
-  await startCamera();
-  photoArea.innerHTML = ""; // 初期表示で他人の写真非表示
-  renderExistingPhotos(); // ★過去の他人写真を描画
-};
-
-/* ごちそうさま */
-endButton.onclick = async () => {
-  phase = "end";
-  endButton.style.display = "none";
-  cameraArea.style.display = "block";
-  message.textContent = "どんな時間でしたか";
-  await startCamera();
-};
-
-// ★自分と他人の写真を管理するオブジェクト
+/* 写真管理 */
 const displayedPhotos = {};
 
-function renderPhoto(id, data, isSelf) {
+function renderPhoto(id, data, isSelf=false) {
+  if (displayedPhotos[id]) return;
   const img = document.createElement("img");
   img.src = data.image;
   img.dataset.id = id;
@@ -99,12 +114,25 @@ function removePhoto(id) {
   }
 }
 
-// ★初期描画（自分の「いただきます」後に過去写真を表示）
-async function renderExistingPhotos() {
-  if (!hasStarted) return;
-  // Firebaseから現在の写真を取得
-  // この部分は簡略化のため、onChildAddedで自分以外を描画
-}
+/* いただきます */
+startButton.onclick = async () => {
+  phase = "eat";
+  hasStarted = true;
+  startWrapper.style.display = "none";
+  cameraArea.style.display = "block";
+  message.textContent = "今日のご飯は？";
+  await startCamera();
+  photoArea.innerHTML = ""; // 初期表示で他人の写真は非表示
+};
+
+/* ごちそうさま */
+endButton.onclick = async () => {
+  phase = "end";
+  endButton.style.display = "none";
+  cameraArea.style.display = "block";
+  message.textContent = "どんな時間でしたか";
+  await startCamera();
+};
 
 /* シャッター */
 shutter.onclick = async () => {
@@ -113,35 +141,39 @@ shutter.onclick = async () => {
   stopCamera();
   cameraArea.style.display = "none";
 
-  // 自分の写真を投稿
+  // Firebaseに保存
   await set(userPhotoRef, { image, updatedAt: Date.now() });
+
+  // 自分の写真を画面に表示
+  renderPhoto(userId, { image }, true);
 
   if (phase === "eat") {
     endButton.style.display = "block";
   } else {
+    // ごちそうさま後5秒で削除
     setTimeout(async () => {
-      await remove(userPhotoRef); // ★削除
+      await remove(userPhotoRef);
       startWrapper.style.display = "flex";
       photoArea.innerHTML = "";
+      for (const key in displayedPhotos) delete displayedPhotos[key];
     }, 5000);
   }
 };
 
-/* 他ユーザーの写真リアルタイム表示 */
-// ★追加: 他人の写真のみ表示。自分の「いただきます」後に描画
+/* 他ユーザーの写真表示 */
 onChildAdded(photosRef, snapshot => {
-  if (!hasStarted) return; // 自分がまだいただきますしていない場合は描画しない
+  if (!hasStarted) return; // いただきますしていなければ描画しない
   const id = snapshot.key;
-  if (id === userId) return; // 自分の写真は描画しない
+  if (id === userId) return; // 自分の写真は描画済み
   const data = snapshot.val();
-  if (data && data.image) {
-    renderPhoto(id, data, false);
-  }
+  if (data && data.image) renderPhoto(id, data, false);
 });
 
-// ★他人の写真削除をリアルタイム反映
+/* 他ユーザーの写真削除 */
 onChildRemoved(photosRef, snapshot => {
   const id = snapshot.key;
   removePhoto(id);
 });
 </script>
+</body>
+</html>
