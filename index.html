@@ -2,6 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, set, onChildAdded, onChildRemoved, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
+// ---------------- Firebase 設定 ----------------
 const firebaseConfig = {
   apiKey: "AIzaSyA8Qa_69erE3FNr-XKzXFN_81iPYXyqHfI",
   databaseURL: "https://its-time-to-eat-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -12,10 +13,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-const userId = crypto.randomUUID();
+const userId = crypto.randomUUID(); // セッションごとのユニークID
 const userPhotoRef = ref(db, `photos/${userId}`);
 const photosRef = ref(db, "photos");
 
+// ---------------- DOM ----------------
 const startWrapper = document.getElementById("startWrapper");
 const startButton = document.getElementById("startButton");
 const endButton = document.getElementById("endButton");
@@ -27,9 +29,10 @@ const photoArea = document.getElementById("photoArea");
 const flash = document.getElementById("flash");
 const message = document.getElementById("message");
 
+// ---------------- 状態管理 ----------------
 let stream = null;
-let phase = "wait"; // 初期状態は wait
-const displayedPhotos = new Map(); // 表示中の写真管理
+let phase = "wait"; // wait=未投稿、eat=いただきます、end=ごちそうさま
+const displayedPhotos = new Map(); // 現在表示中の写真管理
 
 // ---------------- カメラ ----------------
 async function startCamera() {
@@ -60,20 +63,19 @@ function flashEffect() {
   setTimeout(() => flash.style.opacity = 0, 100);
 }
 
-// ---------------- いただきます ----------------
+// ---------------- いただきますボタン ----------------
 startButton.onclick = async () => {
   phase = "eat";
-  startWrapper.style.display = "none";
+  startWrapper.style.display = "none"; // ボタン非表示
   cameraArea.style.display = "block";
   message.textContent = "今日のご飯は？";
   await startCamera();
 
-  // 初期表示では過去の写真を表示しない
-  photoArea.innerHTML = "";
+  photoArea.innerHTML = ""; // 過去写真は非表示
   displayedPhotos.clear();
 };
 
-// ---------------- ごちそうさま ----------------
+// ---------------- ごちそうさまボタン ----------------
 endButton.onclick = async () => {
   phase = "end";
   endButton.style.display = "none";
@@ -89,7 +91,7 @@ shutter.onclick = async () => {
   stopCamera();
   cameraArea.style.display = "none";
 
-  // 自分の写真を投稿
+  // 自分の写真を投稿（追加/更新）
   await set(userPhotoRef, {
     image,
     updatedAt: Date.now()
@@ -97,11 +99,10 @@ shutter.onclick = async () => {
 
   if (phase === "eat") {
     endButton.style.display = "block";
-  } else {
-    // ごちそうさま後5秒で削除
+  } else { // ごちそうさま後
     setTimeout(async () => {
       await remove(userPhotoRef); // 他ユーザー画面からも消える
-      startWrapper.style.display = "flex";
+      startWrapper.style.display = "flex"; // ボタン復活
       photoArea.innerHTML = "";
       displayedPhotos.clear();
       phase = "wait"; // 初期状態に戻す
@@ -116,10 +117,10 @@ onChildAdded(photosRef, snapshot => {
   const data = snapshot.val();
   if (!data || !data.image) return;
 
-  // 自分の投稿がまだない場合は表示しない
+  // 自分がまだいただきますしていなければ表示しない
   if (phase === "wait") return;
 
-  // 同じ写真を重複表示しない
+  // すでに表示済みの写真は重複表示しない
   if (displayedPhotos.has(snapshot.key)) return;
 
   const img = document.createElement("img");
