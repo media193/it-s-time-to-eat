@@ -12,14 +12,13 @@ body {
   font-family: sans-serif;
 }
 
-/* 写真表示 */
 #photoArea {
   padding: 10px;
   text-align: center;
 }
 
 #photoArea img {
-  width: 160px;
+  width: 140px;
   border-radius: 6px;
   margin: 6px;
 }
@@ -41,9 +40,7 @@ body {
   z-index: 2;
 }
 
-video {
-  width: 100%;
-}
+video { width: 100%; }
 
 /* シャッター */
 #shutter {
@@ -68,7 +65,7 @@ video {
   background: #eee;
 }
 
-/* ボタン共通 */
+/* ボタン */
 .circleButton {
   width: 180px;
   height: 180px;
@@ -81,7 +78,6 @@ video {
   box-shadow: 0 8px 24px rgba(0,0,0,0.15);
 }
 
-/* フラッシュ */
 #flash {
   position: fixed;
   inset: 0;
@@ -90,9 +86,7 @@ video {
   pointer-events: none;
 }
 
-canvas {
-  display: none;
-}
+canvas { display: none; }
 </style>
 </head>
 
@@ -117,10 +111,8 @@ canvas {
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-// Firebase 設定
 const firebaseConfig = {
   apiKey: "AIzaSyA8Qa_69erE3FNr-XKzXFN_81iPYXyqHfI",
-  authDomain: "its-time-to-eat.firebaseapp.com",
   databaseURL: "https://its-time-to-eat-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "its-time-to-eat",
   appId: "1:47758464256:web:1d7b4e5830aab3ab7f4fe5"
@@ -129,12 +121,13 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// ユーザーごとのIDを作成（ブラウザごとに一度だけ）
+// ユーザーID（ブラウザ単位）
 let userId = localStorage.getItem("userId");
 if (!userId) {
   userId = crypto.randomUUID();
   localStorage.setItem("userId", userId);
 }
+
 const userPhotoRef = ref(db, `photos/${userId}`);
 const photosRef = ref(db, "photos");
 
@@ -151,13 +144,16 @@ const flash = document.getElementById("flash");
 let stream = null;
 let phase = "eat";
 
-// カメラ開始（背面カメラ指定）
+// 写真閲覧許可フラグ
+let canViewPhotos = false;
+
+// カメラ開始
 async function startCamera() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
     video.srcObject = stream;
   } catch (err) {
-    alert("カメラにアクセスできませんでした: " + err.message);
+    alert("カメラにアクセスできません: " + err.message);
   }
 }
 
@@ -183,6 +179,7 @@ function flashEffect() {
 /* いただきます */
 startButton.onclick = async () => {
   phase = "eat";
+  canViewPhotos = true;          // 見る権利を付与
   startButton.style.display = "none";
   cameraArea.style.display = "block";
   await startCamera();
@@ -191,6 +188,7 @@ startButton.onclick = async () => {
 /* ごちそうさま */
 endButton.onclick = async () => {
   phase = "end";
+  canViewPhotos = true;          // 見る権利はこのフェーズでも維持
   endButton.style.display = "none";
   cameraArea.style.display = "block";
   await startCamera();
@@ -203,7 +201,7 @@ shutter.onclick = async () => {
   stopCamera();
   cameraArea.style.display = "none";
 
-  // 自分の写真は上書き
+  // 自分の写真を上書き
   await set(userPhotoRef, {
     image,
     time: Date.now()
@@ -212,8 +210,10 @@ shutter.onclick = async () => {
   if (phase === "eat") {
     endButton.style.display = "block";
   } else {
+    // ごちそうさま後は5秒後に削除して初期化
     setTimeout(async () => {
       await remove(userPhotoRef);
+      canViewPhotos = false;
       startButton.style.display = "block";
     }, 5000);
   }
@@ -222,6 +222,10 @@ shutter.onclick = async () => {
 /* リアルタイムで全ユーザーの最新写真だけ表示 */
 onValue(photosRef, snapshot => {
   photoArea.innerHTML = "";
+
+  if (!canViewPhotos) return; // まだ権利がない場合は表示しない
+
+  const now = Date.now();
   snapshot.forEach(childSnap => {
     const data = childSnap.val();
     if (data && data.image) {
